@@ -1,0 +1,7 @@
+librosa==0.10.2.post1
+soundfile==0.13.1
+pydub==0.25.1
+torch==2.6.0
+torchaudio==2.6.0
+datasets==3.3.2
+tqdm==4.67.1

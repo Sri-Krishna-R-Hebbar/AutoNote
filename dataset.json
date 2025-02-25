@@ -1,0 +1,78 @@
+[
+    {
+        "audio": "processed_audio\\video1\\segment_1.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video1\\segment_2.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video1\\segment_3.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video1\\segment_4.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video1\\segment_5.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video1\\segment_6.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video2\\segment_1.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video2\\segment_2.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video2\\segment_3.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video3\\segment_1.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video3\\segment_2.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video3\\segment_3.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video4\\segment_1.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video4\\segment_2.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video4\\segment_3.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video4\\segment_4.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video4\\segment_5.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video4\\segment_6.wav",
+        "text": ""
+    },
+    {
+        "audio": "processed_audio\\video5\\output.wav",
+        "text": ""
+    }
+]
