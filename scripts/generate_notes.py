@@ -1,126 +1,53 @@
+import torch
+from transformer_model import TransformerModel
+from tokenizer import tokenize_text, detokenize_text
+import json
+from transformers import AutoTokenizer
 import os
-import json
-import re
-from pathlib import Path
 
-# Input and output paths
-data_file = "dataset.json"
-output_dir = "processed_notes"
+# Load the trained model
+MODEL_PATH = "transformer_model.pth"
+# vocab_size = 10000  
+tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+vocab_size = tokenizer.vocab_size # Ensure this matches the training configuration
 
-# Ensure output directory existsimport os
-import json
-import re
-from pathlib import Path
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = TransformerModel(vocab_size=vocab_size).to(device)
+model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+model.eval()
 
-# Input and output paths
-data_file = "dataset.json"
-output_dir = "processed_notes"
-
-# Ensure output directory exists
-os.makedirs(output_dir, exist_ok=True)
-
-def format_transcription(text):
-    """Formats transcription into structured notes with headings, bullet points, and paragraphs."""
-    
-    # Split into sentences
-    sentences = re.split(r'(?<=\.)\s+', text)
-    
-    # Create structured notes
-    formatted_text = "# Summary of the Video\n\n"
-    formatted_text += "## Key Points\n\n"
-    
-    for i, sentence in enumerate(sentences, start=1):
-        formatted_text += f"- {sentence}\n"
-    
-    formatted_text += "\n## Detailed Explanation\n\n"
-    formatted_text += "\n".join(sentences)
-    
-    return formatted_text
-
-# Load dataset
-with open(data_file, "r", encoding="utf-8") as f:
+# Load dataset.json
+with open("test_data.json", "r", encoding="utf-8") as f:
     dataset = json.load(f)
 
-# Process each entry
+OUTPUT_DIR = "processed_notes"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Generate notes for each transcription
 for entry in dataset:
     audio_path = entry["audio"]
     transcription = entry["text"].strip()
     
-    # Skip empty transcriptions
     if not transcription:
-        print(f"Skipping {audio_path} (empty transcription)")
+        print(f"Skipping empty transcription for {audio_path}")
         continue
     
-    # Extract video name
-    video_folder = Path(audio_path).parent.name
-    file_name = Path(audio_path).stem
+    # Tokenize input
+    input_tokens = tokenize_text(transcription)
+    input_tensor = torch.tensor(input_tokens).unsqueeze(0).to(device)
     
-    # Create output directory for video
-    video_output_dir = os.path.join(output_dir, video_folder)
-    os.makedirs(video_output_dir, exist_ok=True)
+    # Generate output
+    with torch.no_grad():
+        output_tensor = model(input_tensor, input_tensor)
     
-    # Format notes
-    formatted_notes = format_transcription(transcription)
+    # Convert tokens back to text
+    generated_text = detokenize_text(output_tensor.squeeze(0).cpu().tolist())
     
-    # Save to markdown file
-    note_path = os.path.join(video_output_dir, f"{file_name}.md")
-    with open(note_path, "w", encoding="utf-8") as f:
-        f.write(formatted_notes)
+    # Save notes
+    video_name = os.path.basename(os.path.dirname(audio_path))
+    output_path = os.path.join(OUTPUT_DIR, f"{video_name}.md")
     
-    print(f"Saved notes for {audio_path} -> {note_path}")
-
-print("✅ Notes generation complete! Skipped empty transcriptions.")
-
-os.makedirs(output_dir, exist_ok=True)
-
-def format_transcription(text):
-    """Formats transcription into structured notes with headings, bullet points, and paragraphs."""
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(generated_text)
     
-    # Split into sentences
-    sentences = re.split(r'(?<=\.)\s+', text)
-    
-    # Create structured notes
-    formatted_text = "# Summary of the Video\n\n"
-    formatted_text += "## Key Points\n\n"
-    
-    for i, sentence in enumerate(sentences, start=1):
-        formatted_text += f"- {sentence}\n"
-    
-    formatted_text += "\n## Detailed Explanation\n\n"
-    formatted_text += "\n".join(sentences)
-    
-    return formatted_text
-
-# Load dataset
-with open(data_file, "r", encoding="utf-8") as f:
-    dataset = json.load(f)
-
-# Process each entry
-for entry in dataset:
-    audio_path = entry["audio"]
-    transcription = entry["text"].strip()
-    
-    # Skip empty transcriptions
-    if not transcription:
-        print(f"Skipping {audio_path} (empty transcription)")
-        continue
-    
-    # Extract video name
-    video_folder = Path(audio_path).parent.name
-    file_name = Path(audio_path).stem
-    
-    # Create output directory for video
-    video_output_dir = os.path.join(output_dir, video_folder)
-    os.makedirs(video_output_dir, exist_ok=True)
-    
-    # Format notes
-    formatted_notes = format_transcription(transcription)
-    
-    # Save to markdown file
-    note_path = os.path.join(video_output_dir, f"{file_name}.md")
-    with open(note_path, "w", encoding="utf-8") as f:
-        f.write(formatted_notes)
-    
-    print(f"Saved notes for {audio_path} -> {note_path}")
-
-print("✅ Notes generation complete! Skipped empty transcriptions.")
+    print(f"Notes saved for {video_name} at {output_path}")

@@ -2,4 +2,6 @@
 /processed_audio
 /.venv
 /processed_notes
-/Model_Working
+/.env
+/processed_data
+transformer_model.pth
