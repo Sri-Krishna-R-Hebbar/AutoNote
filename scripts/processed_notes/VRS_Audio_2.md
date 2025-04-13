@@ -1,0 +1,1 @@
+energy. Ravi leaped, barely making it onto the train just as the doors hissed shut behind him. He stumbled, catching his balance against a pole, breathing heavily. Relief washed over him. He'd made it.
