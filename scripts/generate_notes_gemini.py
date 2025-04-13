@@ -7,7 +7,7 @@ from pathlib import Path
 DATA_FILE = "../test_dataset.json"
 OUTPUT_DIR = "processed_notes"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-GEMINI_API_KEY = "AIzaSyBKGK7yUNb4qFBl8sQ24ztbHiPdXf3uJTQ"  # Replace with your actual API key
+GEMINI_API_KEY = "your_api_key"  # Replace with your actual API key
 
 def generate_notes_with_gemini(transcription):
     """Sends transcription to Gemini API to generate structured notes."""
