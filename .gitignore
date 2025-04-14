@@ -5,3 +5,4 @@
 /.env
 /processed_data
 transformer_model.pth
+/scripts/my_audio.wav
