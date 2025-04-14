@@ -4,7 +4,7 @@ from fpdf import FPDF
 
 # Constants
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-GEMINI_API_KEY = "AIzaSyCR965bweN1CKG5AnLNXrTBRufc-5gVc14"  # 🔐 Replace this with your Gemini API key
+GEMINI_API_KEY = "your_api_key"  # 🔐 Replace this with your Gemini API key
 OUTPUT_DIR = "processed_notes"
 
 # Ensure output directory exists

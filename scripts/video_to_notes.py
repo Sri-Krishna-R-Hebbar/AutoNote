@@ -10,7 +10,7 @@ import torch
 OCR_TEXT_DIR = "ocr_texts"
 OUTPUT_DIR = "processed_notes"
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-GEMINI_API_KEY = "AIzaSyBhjM258PcXrpKGz-k3weT8fNnR75I5jys"  # 🔐 Replace this with your Gemini API key
+GEMINI_API_KEY = "your_api_key"  # 🔐 Replace this with your Gemini API key
 EXTRACT_INTERVAL_SECONDS = 5  # Extract frames every 5 seconds
 
 # Ensure directories exist
