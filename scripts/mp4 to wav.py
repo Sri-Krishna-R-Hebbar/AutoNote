@@ -19,4 +19,4 @@ def extract_audio_segments(video_path):
     print("Audio extraction completed.")
 
 # Example usage
-extract_audio_segments("data/video/20. Linear System Modeling a Single Degree of Freedom Oscillator.mp4") 
+extract_audio_segments("data/videos/video1/output.mp4") 

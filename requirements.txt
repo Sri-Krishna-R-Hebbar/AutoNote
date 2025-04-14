@@ -7,3 +7,6 @@ datasets==3.3.2
 tqdm==4.67.1
 transformers==4.49.0
 moviepy==2.1.2
+transformers
+accelerate
+qwen-vl-utils
