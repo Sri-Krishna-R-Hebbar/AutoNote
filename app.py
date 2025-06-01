@@ -72,5 +72,9 @@ def download_file(job_id):
         return send_file(pdf_path, as_attachment=True)
     return jsonify({'error': 'File not found'}), 404
 
+@app.route('/ping')
+def ping():
+    return "pong"
+
 if __name__ == '__main__':
     app.run(debug=True) 
