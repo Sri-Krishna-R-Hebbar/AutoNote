@@ -5,7 +5,7 @@ requests==2.26.0
 transformers==4.30.2
 torch==2.6.0
 torchaudio==2.6.0
-opencv-python-headless==4.7.0
+opencv-python-headless==4.8.0.76
 Pillow==9.5.0
 pydub==0.25.1
 markdown==3.4.1
