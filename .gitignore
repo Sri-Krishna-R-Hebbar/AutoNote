@@ -1,3 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Project specific
+uploads/*
+!uploads/.gitkeep
+processed_notes/*
+!processed_notes/.gitkeep
+*.wav
+*.mp3
+*.mp4
+*.pdf
+*.md
+!README.md
+
+# Logs
+*.log
+logs/
+log/
+
+# Model files and caches
+*.pt
+*.pth
+*.bin
+.cache/
+transformers_cache/
+torch_cache/
+
+# Temporary files
+temp/
+tmp/
+.temp/
+.tmp/
+
+# Dataset files
+*.json
+*.csv
+*.tsv
+*.txt
+!requirements.txt
+!test_dataset.json
+
 /data
 /processed_audio
 /.venv
