@@ -21,6 +21,7 @@ import re
 import glob
 import shutil
 import subprocess
+import tempfile
 import logging
 
 import requests
@@ -95,6 +96,35 @@ def extract_youtube_id(url: str) -> str | None:
     return match.group(1) if match else None
 
 
+# Optional: cookies from a real logged-in YouTube session, used to get past
+# "Sign in to confirm you're not a bot" challenges that cloud/datacenter IPs
+# (Render, AWS, etc.) increasingly trigger. Nothing breaks if these aren't
+# set - YouTube downloads just stay best-effort without them.
+#   YTDLP_COOKIES_FILE  - path to a Netscape-format cookies.txt file
+#   YTDLP_COOKIES       - the raw contents of that file, e.g. pasted into a
+#                          Render environment variable (written to a temp
+#                          file on first use)
+_YTDLP_COOKIES_FILE = os.getenv("YTDLP_COOKIES_FILE", "").strip()
+_YTDLP_COOKIES_RAW = os.getenv("YTDLP_COOKIES", "").strip()
+_resolved_cookies_path: str | None = None
+
+
+def _cookies_file_path() -> str | None:
+    global _resolved_cookies_path
+    if _resolved_cookies_path:
+        return _resolved_cookies_path
+    if _YTDLP_COOKIES_FILE and os.path.exists(_YTDLP_COOKIES_FILE):
+        _resolved_cookies_path = _YTDLP_COOKIES_FILE
+        return _resolved_cookies_path
+    if _YTDLP_COOKIES_RAW:
+        path = os.path.join(tempfile.gettempdir(), "autonote_ytdlp_cookies.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(_YTDLP_COOKIES_RAW)
+        _resolved_cookies_path = path
+        return _resolved_cookies_path
+    return None
+
+
 def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
     """Download only the audio track of a YouTube (or other yt-dlp supported) URL.
 
@@ -111,9 +141,10 @@ def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
 
     os.makedirs(out_dir, exist_ok=True)
     out_template = os.path.join(out_dir, "source_audio.%(ext)s")
+    cookies_path = _cookies_file_path()
 
     def base_opts() -> dict:
-        return {
+        opts = {
             "format": "bestaudio/best",
             "outtmpl": out_template,
             "noplaylist": True,
@@ -128,16 +159,21 @@ def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
                 }
             ],
         }
+        if cookies_path:
+            opts["cookiefile"] = cookies_path
+        return opts
 
     # Cloud/datacenter IPs (Render, AWS, etc.) frequently get blocked by
-    # YouTube's default "web" extraction path ("Failed to extract any player
-    # response"). Falling back through other internal YouTube clients works
-    # around that in most cases, since they use different (less-blocked)
-    # request signatures.
+    # YouTube's default "web" extraction path, or hit a "confirm you're not a
+    # bot" wall. Falling back through other internal YouTube clients works
+    # around that in many cases, since they use different request signatures;
+    # cookies (if configured above) help every attempt below get further.
     player_client_attempts = [
         ["android", "web"],
         ["ios"],
         ["tv_embedded"],
+        ["tv"],
+        ["mweb"],
         None,  # yt-dlp's default behaviour, as a last resort
     ]
 
@@ -156,8 +192,15 @@ def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
             continue
 
     if info is None:
+        hint = ""
+        if not cookies_path and any("sign in" in e.lower() or "bot" in e.lower() for e in errors):
+            hint = (
+                " (YouTube is asking for a logged-in session on this server - set the "
+                "YTDLP_COOKIES environment variable with exported browser cookies to fix this "
+                "reliably.)"
+            )
         raise PipelineError(
-            "Could not download that video: " + (errors[-1] if errors else "unknown error")
+            "Could not download that video: " + (errors[-1] if errors else "unknown error") + hint
         )
 
     title = (info or {}).get("title") or "Video"
