@@ -72,6 +72,7 @@ tmp/
 !requirements.txt
 !test_dataset.json
 !frontend/**/*.json
+!frontend/**/*.txt
 
 # React frontend (installed/build artifacts only)
 frontend/node_modules/

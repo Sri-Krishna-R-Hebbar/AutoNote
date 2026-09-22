@@ -4,6 +4,7 @@ import ProcessingView from './components/ProcessingView';
 import ResultView from './components/ResultView';
 import ErrorView from './components/ErrorView';
 import StudioView from './components/StudioView';
+import SeoContent from './components/SeoContent';
 import { fetchConfig, startJob, fetchStatus, fetchNotes } from './api';
 
 const POLL_INTERVAL_MS = 3000;
@@ -118,6 +119,8 @@ export default function App() {
           {view === 'error' && <ErrorView message={errorMessage} onRetry={reset} />}
         </div>
       )}
+
+      {view === 'upload' && <SeoContent />}
 
       {!isStudio && (
         <footer>
