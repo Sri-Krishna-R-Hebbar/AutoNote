@@ -113,15 +113,40 @@ def _cookies_file_path() -> str | None:
     global _resolved_cookies_path
     if _resolved_cookies_path:
         return _resolved_cookies_path
+
     if _YTDLP_COOKIES_FILE and os.path.exists(_YTDLP_COOKIES_FILE):
         _resolved_cookies_path = _YTDLP_COOKIES_FILE
+        logger.info("Using YTDLP_COOKIES_FILE at %s", _YTDLP_COOKIES_FILE)
         return _resolved_cookies_path
+
     if _YTDLP_COOKIES_RAW:
+        content = _YTDLP_COOKIES_RAW.replace("\r\n", "\n")
+        # http.cookiejar's Netscape loader silently rejects files that don't
+        # start with this exact header - a common gotcha when copy-pasting a
+        # cookies.txt export into an env var, so we patch it in if missing.
+        if not content.lstrip().startswith("# Netscape HTTP Cookie File") and not content.lstrip().startswith(
+            "# HTTP Cookie File"
+        ):
+            content = "# Netscape HTTP Cookie File\n" + content
+        cookie_lines = [
+            ln for ln in content.splitlines() if ln.strip() and not ln.strip().startswith("#")
+        ]
         path = os.path.join(tempfile.gettempdir(), "autonote_ytdlp_cookies.txt")
         with open(path, "w", encoding="utf-8") as f:
-            f.write(_YTDLP_COOKIES_RAW)
+            f.write(content)
         _resolved_cookies_path = path
+        logger.info(
+            "Loaded YTDLP_COOKIES from environment: %d cookie line(s) written to %s",
+            len(cookie_lines),
+            path,
+        )
+        if len(cookie_lines) == 0:
+            logger.warning(
+                "YTDLP_COOKIES was set but no cookie lines were parsed from it - check the "
+                "value was pasted in as tab-separated Netscape cookies.txt format."
+            )
         return _resolved_cookies_path
+
     return None
 
 
@@ -195,18 +220,28 @@ def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
             None,  # yt-dlp's default behaviour, as a last resort
         ]
 
+    logger.info(
+        "YouTube download starting for %s (cookies=%s, %d client attempt(s) queued)",
+        url,
+        "yes" if cookies_path else "no",
+        len(player_client_attempts),
+    )
+
     info = None
     errors = []
     for clients in player_client_attempts:
+        label = "+".join(clients) if clients else "default"
         opts = base_opts()
         if clients:
             opts["extractor_args"] = {"youtube": {"player_client": clients}}
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
+            logger.info("YouTube download succeeded using client(s): %s", label)
             break
         except Exception as exc:
-            errors.append(str(exc))
+            logger.warning("YouTube client attempt '%s' failed: %s", label, exc)
+            errors.append(f"[{label}] {exc}")
             continue
 
     if info is None:
@@ -217,8 +252,12 @@ def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
                 "YTDLP_COOKIES environment variable with exported browser cookies to fix this "
                 "reliably.)"
             )
+        logger.warning("All YouTube client attempts failed for %s:\n%s", url, "\n".join(errors))
         raise PipelineError(
-            "Could not download that video: " + (errors[-1] if errors else "unknown error") + hint
+            "Could not download that video after trying "
+            f"{len(player_client_attempts)} methods: "
+            + (errors[-1] if errors else "unknown error")
+            + hint
         )
 
     title = (info or {}).get("title") or "Video"
