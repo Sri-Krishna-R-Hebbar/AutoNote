@@ -71,6 +71,12 @@ tmp/
 *.txt
 !requirements.txt
 !test_dataset.json
+!frontend/**/*.json
+
+# React frontend (installed/build artifacts only)
+frontend/node_modules/
+frontend/dist/
+!frontend/README.md
 
 /data
 /processed_audio

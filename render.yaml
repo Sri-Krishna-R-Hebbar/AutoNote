@@ -1,18 +1,12 @@
 services:
   - type: web
     name: autonote
-    runtime: python
-    buildCommand: |
-      python -m pip install --upgrade pip
-      pip install -r requirements.txt
-      pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-    startCommand: gunicorn app:app
+    runtime: docker
+    plan: free
     envVars:
-      - key: GEMINI_API_KEY
+      - key: GROQ_API_KEY
         sync: false
-      - key: PYTHON_VERSION
-        value: 3.11.11
     disk:
       name: autonote-disk
-      mountPath: /opt/render/project/src
-      sizeGB: 10 
+      mountPath: /app/processed_notes
+      sizeGB: 1
