@@ -6,7 +6,3 @@ services:
     envVars:
       - key: GROQ_API_KEY
         sync: false
-    disk:
-      name: autonote-disk
-      mountPath: /app/processed_notes
-      sizeGB: 1
