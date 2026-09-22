@@ -168,14 +168,32 @@ def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
     # bot" wall. Falling back through other internal YouTube clients works
     # around that in many cases, since they use different request signatures;
     # cookies (if configured above) help every attempt below get further.
-    player_client_attempts = [
-        ["android", "web"],
-        ["ios"],
-        ["tv_embedded"],
-        ["tv"],
-        ["mweb"],
-        None,  # yt-dlp's default behaviour, as a last resort
-    ]
+    #
+    # The mobile clients (android/ios) have also started returning
+    # SABR-restricted formats that yt-dlp can't download directly, causing
+    # "Requested format is not available" even though extraction itself
+    # succeeded - so when we have cookies, try the full "web" client (which
+    # doesn't have that restriction) first, and only fall back to the mobile
+    # clients last.
+    if cookies_path:
+        player_client_attempts = [
+            ["web"],
+            ["tv_embedded"],
+            ["tv"],
+            ["mweb"],
+            ["android", "web"],
+            ["ios"],
+            None,
+        ]
+    else:
+        player_client_attempts = [
+            ["android", "web"],
+            ["ios"],
+            ["tv_embedded"],
+            ["tv"],
+            ["mweb"],
+            None,  # yt-dlp's default behaviour, as a last resort
+        ]
 
     info = None
     errors = []
