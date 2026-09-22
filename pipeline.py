@@ -112,27 +112,53 @@ def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
     os.makedirs(out_dir, exist_ok=True)
     out_template = os.path.join(out_dir, "source_audio.%(ext)s")
 
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "outtmpl": out_template,
-        "noplaylist": True,
-        "quiet": True,
-        "no_warnings": True,
-        "ffmpeg_location": _ffmpeg_exe(),
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "64",
-            }
-        ],
-    }
+    def base_opts() -> dict:
+        return {
+            "format": "bestaudio/best",
+            "outtmpl": out_template,
+            "noplaylist": True,
+            "quiet": True,
+            "no_warnings": True,
+            "ffmpeg_location": _ffmpeg_exe(),
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "64",
+                }
+            ],
+        }
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-    except Exception as exc:
-        raise PipelineError(f"Could not download that video: {exc}") from exc
+    # Cloud/datacenter IPs (Render, AWS, etc.) frequently get blocked by
+    # YouTube's default "web" extraction path ("Failed to extract any player
+    # response"). Falling back through other internal YouTube clients works
+    # around that in most cases, since they use different (less-blocked)
+    # request signatures.
+    player_client_attempts = [
+        ["android", "web"],
+        ["ios"],
+        ["tv_embedded"],
+        None,  # yt-dlp's default behaviour, as a last resort
+    ]
+
+    info = None
+    errors = []
+    for clients in player_client_attempts:
+        opts = base_opts()
+        if clients:
+            opts["extractor_args"] = {"youtube": {"player_client": clients}}
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+            break
+        except Exception as exc:
+            errors.append(str(exc))
+            continue
+
+    if info is None:
+        raise PipelineError(
+            "Could not download that video: " + (errors[-1] if errors else "unknown error")
+        )
 
     title = (info or {}).get("title") or "Video"
     mp3_path = os.path.join(out_dir, "source_audio.mp3")
