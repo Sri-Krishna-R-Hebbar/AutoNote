@@ -96,6 +96,10 @@ OPENROUTER_VISION_MODELS = (
 FRAME_SAMPLE_INTERVAL_SECONDS = float(os.getenv("FRAME_SAMPLE_INTERVAL_SECONDS", "5"))
 FRAME_DIFF_THRESHOLD = float(os.getenv("FRAME_DIFF_THRESHOLD", "12"))
 FRAME_MAX_CALLS = int(os.getenv("FRAME_MAX_CALLS", "30"))
+# Candidate frames are downscaled to this width (if wider) before being kept
+# in memory or sent to the vision model - keeps RAM bounded on long/high-res
+# videos and the vision model doesn't need full resolution to read text.
+FRAME_MAX_WIDTH = int(os.getenv("FRAME_MAX_WIDTH", "960"))
 
 
 class PipelineError(Exception):
@@ -197,11 +201,19 @@ legible. If there is no readable on-screen text/writing in this frame, respond w
 NONE"""
 
 
-def _encode_frame_jpeg_b64(frame) -> str:
+def _encode_frame_jpeg_bytes(frame) -> bytes:
+    """Downscale (if needed) and JPEG-encode a frame to a small byte buffer.
+    Candidates are stored this way (not as raw numpy arrays) because a video
+    can turn up dozens of candidate frames before they're thinned down to
+    FRAME_MAX_CALLS - holding all of them as full-resolution frames at once
+    was actually enough to exceed a free-tier host's RAM on longer videos."""
+    h, w = frame.shape[:2]
+    if w > FRAME_MAX_WIDTH:
+        frame = cv2.resize(frame, (FRAME_MAX_WIDTH, int(h * FRAME_MAX_WIDTH / w)))
     ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
     if not ok:
         raise PipelineError("Could not encode a video frame for analysis.")
-    return base64.b64encode(buf.tobytes()).decode("ascii")
+    return buf.tobytes()
 
 
 def _call_openrouter_vision(image_b64: str, model: str) -> str:
@@ -238,10 +250,10 @@ def _call_openrouter_vision(image_b64: str, model: str) -> str:
     return (choices[0].get("message", {}).get("content") or "").strip()
 
 
-def _describe_frame(frame) -> str | None:
+def _describe_frame(jpeg_bytes: bytes) -> str | None:
     """Ask the vision model what's written on this frame. Returns None if
     nothing readable was found (or every fallback model failed)."""
-    image_b64 = _encode_frame_jpeg_b64(frame)
+    image_b64 = base64.b64encode(jpeg_bytes).decode("ascii")
     for model in OPENROUTER_VISION_MODELS:
         try:
             text = _call_openrouter_vision(image_b64, model)
@@ -271,7 +283,9 @@ def analyze_video_frames(video_path: str, progress=None) -> list[dict]:
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     step = max(1, int(fps * FRAME_SAMPLE_INTERVAL_SECONDS))
 
-    candidates: list[tuple[float, "np.ndarray", float]] = []
+    # (timestamp, small jpeg bytes, diff score) - deliberately NOT raw frames;
+    # see _encode_frame_jpeg_bytes for why.
+    candidates: list[tuple[float, bytes, float]] = []
     prev_small = None
     idx = 0
     try:
@@ -287,7 +301,7 @@ def analyze_video_frames(video_path: str, progress=None) -> list[dict]:
                     if prev_small is not None:
                         score = float(np.mean(cv2.absdiff(small, prev_small)))
                     if prev_small is None or score > FRAME_DIFF_THRESHOLD:
-                        candidates.append((idx / fps, frame, score))
+                        candidates.append((idx / fps, _encode_frame_jpeg_bytes(frame), score))
                     prev_small = small
             idx += 1
     finally:
@@ -306,10 +320,10 @@ def analyze_video_frames(video_path: str, progress=None) -> list[dict]:
     logger.info("Analyzing %d candidate video frame(s) for on-screen content", len(candidates))
 
     results: list[dict] = []
-    for i, (timestamp, frame, _score) in enumerate(candidates):
+    for i, (timestamp, jpeg_bytes, _score) in enumerate(candidates):
         if progress:
             progress(f"Analyzing video frames ({i + 1}/{len(candidates)})")
-        text = _describe_frame(frame)
+        text = _describe_frame(jpeg_bytes)
         if text:
             results.append({"start": timestamp, "text": text})
     return results

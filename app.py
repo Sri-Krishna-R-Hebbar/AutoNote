@@ -279,7 +279,15 @@ def status(job_id):
     with JOBS_LOCK:
         job = JOBS.get(job_id)
     if not job:
-        return jsonify({"error": "Unknown job id"}), 404
+        return (
+            jsonify(
+                {
+                    "error": "This job was lost (likely a server restart while it was still "
+                    "processing). Please try uploading again."
+                }
+            ),
+            404,
+        )
 
     response = {
         "status": job["status"],

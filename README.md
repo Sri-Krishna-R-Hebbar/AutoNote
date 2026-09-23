@@ -151,7 +151,12 @@ transcription will be slower than the previous Groq-API approach, especially for
   sending off-server. It's skipped entirely if the key isn't set.
 - On a long video, path 2 is capped at `FRAME_MAX_CALLS` (default 30) vision-model calls, evenly
   covering the video's most visually different moments - it's a sample, not a frame-by-frame scan,
-  to keep free-tier API usage and processing time bounded.
+  to keep free-tier API usage and processing time bounded. Candidate frames are downscaled to
+  `FRAME_MAX_WIDTH` (default 960px) and JPEG-encoded immediately rather than held as raw frames,
+  to keep memory use bounded on Render's free-tier 512MB limit for longer videos.
+- Job status is kept in memory, not a database - if the server process restarts while a job is
+  still processing (e.g. an out-of-memory crash), that job is lost and polling it returns "job was
+  lost" - just re-upload.
 - File upload only — YouTube (and other) URL downloading was removed. YouTube blanket-blocks
   video downloads from cloud/datacenter IP ranges (Render, AWS, GCP, etc.) at the network level,
   independent of cookies or PO tokens, so it never worked reliably once deployed. The UI now
