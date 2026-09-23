@@ -85,22 +85,36 @@ def extract_audio(video_path: str, out_dir: str) -> str:
     """Extract a mono, 16kHz, low-bitrate mp3 track from an uploaded video."""
     os.makedirs(out_dir, exist_ok=True)
     audio_path = os.path.join(out_dir, "source_audio.mp3")
-    _run(
-        [
-            _ffmpeg_exe(),
-            "-y",
-            "-i",
-            video_path,
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            "-b:a",
-            "48k",
-            audio_path,
-        ]
-    )
+    try:
+        _run(
+            [
+                _ffmpeg_exe(),
+                "-y",
+                "-i",
+                video_path,
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-b:a",
+                "48k",
+                audio_path,
+            ]
+        )
+    except PipelineError as exc:
+        # "-vn" drops the video track, so if the file has no audio track at
+        # all (common for video-only downloads from some YouTube downloader
+        # sites) ffmpeg ends up with nothing to encode and fails with this
+        # exact message - give a clear explanation instead of a raw ffmpeg dump.
+        if "does not contain any stream" in str(exc):
+            raise PipelineError(
+                "This video file doesn't have an audio track, so there's nothing to "
+                "transcribe. If you downloaded it from a YouTube downloader site, make "
+                "sure you pick the option that includes audio (not a video-only stream) "
+                "and try uploading it again."
+            ) from exc
+        raise
     if not os.path.exists(audio_path):
         raise PipelineError("Audio extraction failed: no output produced.")
     return audio_path

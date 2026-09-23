@@ -125,7 +125,8 @@ transcription will be slower than the previous Groq-API approach, especially for
   video downloads from cloud/datacenter IP ranges (Render, AWS, GCP, etc.) at the network level,
   independent of cookies or PO tokens, so it never worked reliably once deployed. The UI now
   points users to download the video themselves first (e.g. via
-  [cobalt.tools](https://cobalt.tools)) and upload the file instead.
+  [YTUltra](https://www.ytultra.com/en/youtube-video-downloader/), picking a version with audio
+  included) and upload the file instead.
 - Works best with lectures, talks, and other clearly-spoken content.
 - Very long videos are automatically chunked, if needed, for note generation, so there's no hard
   duration limit — just longer processing time.

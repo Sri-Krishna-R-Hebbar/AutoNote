@@ -67,10 +67,14 @@ export default function UploadForm({ onSubmit }) {
 
       <p className="youtube-hint">
         Have a YouTube link instead of a file? Download it first with a trusted tool like{' '}
-        <a href="https://cobalt.tools" target="_blank" rel="noopener noreferrer">
-          cobalt.tools
+        <a
+          href="https://www.ytultra.com/en/youtube-video-downloader/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          YTUltra
         </a>
-        , then upload the downloaded video here.
+        , then upload the downloaded video here (pick a version with audio included).
       </p>
     </div>
   );
