@@ -35,7 +35,7 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["OUTPUT_FOLDER"], exist_ok=True)
 
 # job_id -> {status, stage, progress, error, pdf_path, title, created,
-#            video_kind ("upload"|"youtube"|"none"), video_path, youtube_id,
+#            video_kind ("upload"|"none"), video_path,
 #            markdown, sections, concept_slides}
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
@@ -79,20 +79,14 @@ def _purge_old_jobs():
                     pass
 
 
-def _run_pipeline(job_id: str, video_path: str | None, youtube_url: str | None, display_name: str):
+def _run_pipeline(job_id: str, video_path: str, display_name: str):
     work_dir = os.path.join(app.config["UPLOAD_FOLDER"], job_id)
     os.makedirs(work_dir, exist_ok=True)
     try:
         title = display_name
-        youtube_id = pipeline.extract_youtube_id(youtube_url) if youtube_url else None
 
-        if youtube_url:
-            _progress(job_id, "Downloading video audio", 8)
-            audio_path, yt_title = pipeline.download_youtube_audio(youtube_url, work_dir)
-            title = yt_title or display_name
-        else:
-            _progress(job_id, "Extracting audio from video", 12)
-            audio_path = pipeline.extract_audio(video_path, work_dir)
+        _progress(job_id, "Extracting audio from video", 12)
+        audio_path = pipeline.extract_audio(video_path, work_dir)
 
         _progress(job_id, "Transcribing audio locally... 0%", 20)
         transcript, segments, duration = pipeline.transcribe_audio(
@@ -116,17 +110,10 @@ def _run_pipeline(job_id: str, video_path: str | None, youtube_url: str | None, 
         )
 
         _progress(job_id, "Designing your PDF", 92)
-        source_label = youtube_url if youtube_url else f"Uploaded file: {display_name}"
+        source_label = f"Uploaded file: {display_name}"
         pdf_title = _extract_title(notes_markdown) or title
         pdf_path = os.path.join(app.config["OUTPUT_FOLDER"], f"{job_id}_notes.pdf")
         build_notes_pdf(notes_markdown, pdf_path, title=pdf_title, source_label=source_label)
-
-        if youtube_id:
-            video_kind = "youtube"
-        elif video_path:
-            video_kind = "upload"
-        else:
-            video_kind = "none"
 
         _set_job(
             job_id,
@@ -135,8 +122,7 @@ def _run_pipeline(job_id: str, video_path: str | None, youtube_url: str | None, 
             progress=100,
             pdf_path=pdf_path,
             title=pdf_title,
-            video_kind=video_kind,
-            youtube_id=youtube_id,
+            video_kind="upload",
             duration=duration,
             markdown=notes_markdown,
             sections=sections,
@@ -170,40 +156,31 @@ def config():
 def process():
     _purge_old_jobs()
 
-    youtube_url = (request.form.get("youtube_url") or "").strip()
     video_file = request.files.get("video")
-
-    if not youtube_url and (not video_file or video_file.filename == ""):
-        return jsonify({"error": "Please upload a video file or paste a video URL."}), 400
+    if not video_file or video_file.filename == "":
+        return jsonify({"error": "Please upload a video file."}), 400
 
     try:
         pipeline.notes_provider()
     except pipeline.PipelineError as exc:
         return jsonify({"error": str(exc)}), 500
 
-    job_id = uuid.uuid4().hex
-    video_path = None
-    display_name = "Video"
+    if not _allowed_file(video_file.filename):
+        return (
+            jsonify(
+                {
+                    "error": "Unsupported file type. Allowed: "
+                    + ", ".join(sorted(ALLOWED_EXTENSIONS))
+                }
+            ),
+            400,
+        )
 
-    if youtube_url:
-        if not re.match(r"^https?://", youtube_url):
-            return jsonify({"error": "That doesn't look like a valid video URL."}), 400
-        display_name = youtube_url
-    else:
-        if not _allowed_file(video_file.filename):
-            return (
-                jsonify(
-                    {
-                        "error": "Unsupported file type. Allowed: "
-                        + ", ".join(sorted(ALLOWED_EXTENSIONS))
-                    }
-                ),
-                400,
-            )
-        filename = secure_filename(video_file.filename)
-        display_name = filename
-        video_path = os.path.join(app.config["UPLOAD_FOLDER"], f"{job_id}_{filename}")
-        video_file.save(video_path)
+    job_id = uuid.uuid4().hex
+    filename = secure_filename(video_file.filename)
+    display_name = filename
+    video_path = os.path.join(app.config["UPLOAD_FOLDER"], f"{job_id}_{filename}")
+    video_file.save(video_path)
 
     with JOBS_LOCK:
         JOBS[job_id] = {
@@ -214,14 +191,13 @@ def process():
             "pdf_path": None,
             "video_path": video_path,
             "video_kind": None,
-            "youtube_id": None,
             "title": display_name,
             "created": time.time(),
         }
 
     thread = threading.Thread(
         target=_run_pipeline,
-        args=(job_id, video_path, youtube_url or None, display_name),
+        args=(job_id, video_path, display_name),
         daemon=True,
     )
     thread.start()
@@ -258,9 +234,7 @@ def notes(job_id):
         return jsonify({"error": "Notes not ready"}), 404
 
     video = {"kind": job.get("video_kind") or "none"}
-    if job.get("video_kind") == "youtube":
-        video["youtube_id"] = job.get("youtube_id")
-    elif job.get("video_kind") == "upload":
+    if job.get("video_kind") == "upload":
         video["src"] = f"/api/video/{job_id}"
 
     return jsonify(

@@ -1,7 +1,7 @@
 const STEPS = [
   {
-    title: 'Upload a video or paste a link',
-    body: 'Drop in an MP4, MOV, MKV, AVI or WEBM file, or paste a YouTube (or other) video URL - no account needed.',
+    title: 'Upload a video',
+    body: 'Drop in an MP4, MOV, MKV, AVI or WEBM file - no account needed. Got a YouTube link instead? Download it with a tool like cobalt.tools first, then upload the file here.',
   },
   {
     title: 'AutoNote transcribes it',
@@ -20,7 +20,7 @@ const STEPS = [
 const FAQS = [
   {
     q: 'How do I convert a YouTube video to notes?',
-    a: 'Paste the YouTube link into AutoNote and click "Generate my notes." AutoNote downloads the audio, transcribes it, and writes detailed notes you can read alongside the embedded video, then download as a PDF.',
+    a: 'Download the video first with a trusted tool like cobalt.tools, then upload the downloaded file to AutoNote and click "Generate my notes." AutoNote transcribes it and writes detailed notes you can read alongside the video, then download as a PDF.',
   },
   {
     q: 'Can I turn any video into notes, not just YouTube?',

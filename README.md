@@ -1,9 +1,9 @@
 # AutoNote 📝🎥
 
-Turn any video — an uploaded file or a link — into detailed, well-organized study notes, with
-the video and notes synced side by side in the browser, plus a swipeable PDF and slide deck.
+Turn an uploaded video into detailed, well-organized study notes, with the video and notes synced
+side by side in the browser, plus a swipeable PDF and slide deck.
 
-Upload a video (or paste a video URL) in the browser, and AutoNote will:
+Upload a video in the browser, and AutoNote will:
 
 1. Extract the audio track (fast, no GPU needed).
 2. Transcribe it **locally** with `faster-whisper` (open-source, from Hugging Face) — no
@@ -13,9 +13,8 @@ Upload a video (or paste a video URL) in the browser, and AutoNote will:
 4. Line the notes up against the transcript's timestamps, so the notes panel can auto-highlight
    and scroll in sync as the video plays.
 5. Render everything into:
-   - A **Studio view**: the video (played in-browser for uploads, embedded for YouTube links) next
-     to a synced notes panel and a swipeable **Concept Slides** deck (tap a slide to jump the
-     video to that moment).
+   - A **Studio view**: the video played in-browser next to a synced notes panel and a swipeable
+     **Concept Slides** deck (tap a slide to jump the video to that moment).
    - A polished **PDF** (cover page, clickable table of contents, styled headings, callout boxes,
      code blocks and tables) using **ReportLab**.
 
@@ -80,10 +79,10 @@ You need **Python 3.10+** and **Node.js 18+**.
 
 ## 🗂️ Project layout
 
-- `app.py` — Flask API: upload/URL handling, background job processing, status polling,
-  download, video streaming, and serving the built React app.
-- `pipeline.py` — audio extraction (ffmpeg), video URL download (yt-dlp), local transcription
-  (faster-whisper), and notes generation (Groq chat models).
+- `app.py` — Flask API: upload handling, background job processing, status polling, download,
+  video streaming, and serving the built React app.
+- `pipeline.py` — audio extraction (ffmpeg), local transcription (faster-whisper), and notes
+  generation (Groq chat models).
 - `notes_analysis.py` — turns generated markdown + timed transcript segments into the
   `sections` (heading → timestamp) and `concept_slides` used by the Studio view, with no extra
   AI calls.
@@ -122,6 +121,11 @@ transcription will be slower than the previous Groq-API approach, especially for
 
 ## 📌 Notes
 
+- File upload only — YouTube (and other) URL downloading was removed. YouTube blanket-blocks
+  video downloads from cloud/datacenter IP ranges (Render, AWS, GCP, etc.) at the network level,
+  independent of cookies or PO tokens, so it never worked reliably once deployed. The UI now
+  points users to download the video themselves first (e.g. via
+  [cobalt.tools](https://cobalt.tools)) and upload the file instead.
 - Works best with lectures, talks, and other clearly-spoken content.
 - Very long videos are automatically chunked, if needed, for note generation, so there's no hard
   duration limit — just longer processing time.

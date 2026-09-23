@@ -1,7 +1,7 @@
 """
 AutoNote processing pipeline.
 
-Given a video (uploaded file or a video URL), this module:
+Given an uploaded video file, this module:
   1. Extracts the audio track (fast, via a bundled static ffmpeg binary).
   2. Transcribes the audio LOCALLY using faster-whisper (an open-source,
      CTranslate2-optimized reimplementation of OpenAI's Whisper, pulled from
@@ -17,11 +17,8 @@ runs locally on CPU, so there's no double dependency on a single provider.
 from __future__ import annotations
 
 import os
-import re
-import glob
 import shutil
 import subprocess
-import tempfile
 import logging
 
 import requests
@@ -67,7 +64,7 @@ def notes_provider() -> str:
 
 
 # --------------------------------------------------------------------------
-# ffmpeg / yt-dlp helpers
+# ffmpeg helpers
 # --------------------------------------------------------------------------
 def _ffmpeg_exe() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
@@ -82,222 +79,6 @@ def _run(cmd: list[str]) -> str:
             f"Command failed ({cmd[0]}): {result.stdout[-2000:] if result.stdout else 'unknown error'}"
         )
     return result.stdout or ""
-
-
-_YOUTUBE_ID_RE = re.compile(
-    r"(?:youtube\.com/(?:watch\?v=|shorts/|embed/)|youtu\.be/)([A-Za-z0-9_-]{11})"
-)
-
-
-def extract_youtube_id(url: str) -> str | None:
-    """Best-effort YouTube video id extraction, for embedding the official
-    player client-side. Returns None for non-YouTube URLs."""
-    match = _YOUTUBE_ID_RE.search(url)
-    return match.group(1) if match else None
-
-
-# Optional: cookies from a real logged-in YouTube session, used to get past
-# "Sign in to confirm you're not a bot" challenges that cloud/datacenter IPs
-# (Render, AWS, etc.) increasingly trigger. Nothing breaks if these aren't
-# set - YouTube downloads just stay best-effort without them.
-#   YTDLP_COOKIES_FILE  - path to a Netscape-format cookies.txt file
-#   YTDLP_COOKIES       - the raw contents of that file, e.g. pasted into a
-#                          Render environment variable (written to a temp
-#                          file on first use)
-_YTDLP_COOKIES_FILE = os.getenv("YTDLP_COOKIES_FILE", "").strip()
-_YTDLP_COOKIES_RAW = os.getenv("YTDLP_COOKIES", "").strip()
-_resolved_cookies_path: str | None = None
-
-
-def _cookies_file_path() -> str | None:
-    global _resolved_cookies_path
-    if _resolved_cookies_path:
-        return _resolved_cookies_path
-
-    if _YTDLP_COOKIES_FILE and os.path.exists(_YTDLP_COOKIES_FILE):
-        _resolved_cookies_path = _YTDLP_COOKIES_FILE
-        logger.info("Using YTDLP_COOKIES_FILE at %s", _YTDLP_COOKIES_FILE)
-        return _resolved_cookies_path
-
-    if _YTDLP_COOKIES_RAW:
-        content = _YTDLP_COOKIES_RAW.replace("\r\n", "\n")
-        # http.cookiejar's Netscape loader silently rejects files that don't
-        # start with this exact header - a common gotcha when copy-pasting a
-        # cookies.txt export into an env var, so we patch it in if missing.
-        if not content.lstrip().startswith("# Netscape HTTP Cookie File") and not content.lstrip().startswith(
-            "# HTTP Cookie File"
-        ):
-            content = "# Netscape HTTP Cookie File\n" + content
-        cookie_lines = [
-            ln for ln in content.splitlines() if ln.strip() and not ln.strip().startswith("#")
-        ]
-        path = os.path.join(tempfile.gettempdir(), "autonote_ytdlp_cookies.txt")
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
-        _resolved_cookies_path = path
-        logger.info(
-            "Loaded YTDLP_COOKIES from environment: %d cookie line(s) written to %s",
-            len(cookie_lines),
-            path,
-        )
-        if len(cookie_lines) == 0:
-            logger.warning(
-                "YTDLP_COOKIES was set but no cookie lines were parsed from it - check the "
-                "value was pasted in as tab-separated Netscape cookies.txt format."
-            )
-        return _resolved_cookies_path
-
-    return None
-
-
-# Optional: a bgutil-ytdlp-pot-provider HTTP server, used to generate the
-# "proof of origin" token YouTube increasingly requires alongside cookies to
-# get past "Sign in to confirm you're not a bot". Deployed as a separate
-# Render service (see render.yaml) so it doesn't share RAM/CPU with this
-# app's Whisper transcription; BGUTIL_POT_HOST is auto-wired to that
-# service's hostname by Render. BGUTIL_POT_BASE_URL can be set instead for a
-# full URL override (e.g. when running the provider locally for testing).
-_BGUTIL_POT_HOST = os.getenv("BGUTIL_POT_HOST", "").strip()
-_BGUTIL_POT_BASE_URL = os.getenv("BGUTIL_POT_BASE_URL", "").strip() or (
-    # Render's fromService/property:host gives the bare internal hostname for
-    # its private network (e.g. "autonote-pot"), which is plain HTTP only -
-    # not HTTPS - and isn't paired with a port. The pot-provider image always
-    # listens on 4416 (it doesn't read $PORT), so that has to be added here.
-    f"http://{_BGUTIL_POT_HOST}:4416" if _BGUTIL_POT_HOST else ""
-)
-
-
-class _YtdlpLogger:
-    """Routes yt-dlp's own internal messages into our logger, so things like
-    whether the PO token provider was actually reached show up in server
-    logs even though we keep yt-dlp's own stdout ("quiet") suppressed."""
-
-    def _emit(self, msg):
-        logger.info("yt-dlp: %s", msg)
-
-    debug = info = warning = error = _emit
-
-
-def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
-    """Download only the audio track of a YouTube (or other yt-dlp supported) URL.
-
-    We only ever need the audio server-side - if it's a YouTube link the
-    browser plays the original video directly via the YouTube embed, so we
-    never have to download (or store) the full video file for that case.
-
-    Returns (mp3_path, video_title).
-    """
-    try:
-        import yt_dlp
-    except ImportError as exc:  # pragma: no cover
-        raise PipelineError("yt-dlp is not installed on the server.") from exc
-
-    os.makedirs(out_dir, exist_ok=True)
-    out_template = os.path.join(out_dir, "source_audio.%(ext)s")
-    cookies_path = _cookies_file_path()
-
-    def base_opts() -> dict:
-        opts = {
-            "format": "bestaudio/best",
-            "outtmpl": out_template,
-            "noplaylist": True,
-            "quiet": True,
-            "no_warnings": True,
-            "verbose": True,
-            "logger": _YtdlpLogger(),
-            "ffmpeg_location": _ffmpeg_exe(),
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "64",
-                }
-            ],
-        }
-        if cookies_path:
-            opts["cookiefile"] = cookies_path
-        if _BGUTIL_POT_BASE_URL:
-            opts["extractor_args"] = {
-                "youtubepot-bgutilhttp": {"base_url": [_BGUTIL_POT_BASE_URL]}
-            }
-        return opts
-
-    # Cloud/datacenter IPs (Render, AWS, etc.) frequently get blocked by
-    # YouTube's default "web" extraction path, or hit a "confirm you're not a
-    # bot" wall - cookies (if configured) and a PO token provider (if
-    # configured, see BGUTIL_POT_BASE_URL above) get past that.
-    #
-    # Separately, YouTube has been rolling out "SABR-only" streaming that
-    # strips direct download URLs from most formats. As of testing this
-    # against the live site, the "web"/"ios"/"mweb" clients currently return
-    # NO downloadable formats at all under SABR, while "android" still
-    # exposes one legacy progressive (video+audio combined) format that
-    # survives it - so android goes first regardless of cookies/POT, with the
-    # rest kept only as a fallback in case that changes again later.
-    player_client_attempts = [
-        ["android"],
-        ["android", "web"],
-        ["ios"],
-        ["mweb"],
-        ["tv"],
-        ["web"],
-        None,  # yt-dlp's default behaviour, as a last resort
-    ]
-
-    logger.info(
-        "YouTube download starting for %s (cookies=%s, pot_provider=%s, %d client attempt(s) queued)",
-        url,
-        "yes" if cookies_path else "no",
-        "yes" if _BGUTIL_POT_BASE_URL else "no",
-        len(player_client_attempts),
-    )
-
-    info = None
-    errors = []
-    for clients in player_client_attempts:
-        label = "+".join(clients) if clients else "default"
-        opts = base_opts()
-        if clients:
-            # merge, don't overwrite - base_opts() may already have set
-            # youtubepot-bgutilhttp's base_url here, and clobbering the whole
-            # dict would silently drop the PO token provider config.
-            opts.setdefault("extractor_args", {})["youtube"] = {"player_client": clients}
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(url, download=True)
-            logger.info("YouTube download succeeded using client(s): %s", label)
-            break
-        except Exception as exc:
-            logger.warning("YouTube client attempt '%s' failed: %s", label, exc)
-            errors.append(f"[{label}] {exc}")
-            continue
-
-    if info is None:
-        hint = ""
-        if not cookies_path and any("sign in" in e.lower() or "bot" in e.lower() for e in errors):
-            hint = (
-                " (YouTube is asking for a logged-in session on this server - set the "
-                "YTDLP_COOKIES environment variable with exported browser cookies to fix this "
-                "reliably.)"
-            )
-        logger.warning("All YouTube client attempts failed for %s:\n%s", url, "\n".join(errors))
-        raise PipelineError(
-            "Could not download that video after trying "
-            f"{len(player_client_attempts)} methods: "
-            + (errors[-1] if errors else "unknown error")
-            + hint
-        )
-
-    title = (info or {}).get("title") or "Video"
-    mp3_path = os.path.join(out_dir, "source_audio.mp3")
-    if not os.path.exists(mp3_path):
-        # yt-dlp may have picked a slightly different final filename
-        candidates = glob.glob(os.path.join(out_dir, "source_audio.*"))
-        if not candidates:
-            raise PipelineError("Audio download finished but no output file was found.")
-        mp3_path = candidates[0]
-
-    return mp3_path, title
 
 
 def extract_audio(video_path: str, out_dir: str) -> str:

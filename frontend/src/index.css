@@ -74,35 +74,6 @@ h1 span {
   padding: 28px;
 }
 
-.tabs {
-  display: flex;
-  gap: 6px;
-  background: var(--bg);
-  padding: 5px;
-  border-radius: 12px;
-  margin-bottom: 22px;
-}
-
-.tab-btn {
-  flex: 1;
-  padding: 10px 14px;
-  border: none;
-  background: transparent;
-  border-radius: 9px;
-  font-family: inherit;
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--muted);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.tab-btn.active {
-  background: white;
-  color: var(--primary-dark);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
-
 .dropzone {
   border: 2px dashed var(--border);
   border-radius: 14px;
@@ -148,25 +119,17 @@ h1 span {
   word-break: break-all;
 }
 
-input[type='url'] {
-  width: 100%;
-  padding: 14px 16px;
-  font-size: 15px;
-  border: 1.5px solid var(--border);
-  border-radius: 12px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-input[type='url']:focus {
-  border-color: var(--primary);
-}
-
-.url-hint {
+.youtube-hint {
   color: var(--muted);
   font-size: 13px;
-  margin-top: 8px;
+  margin-top: 16px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.youtube-hint a {
+  color: var(--primary-dark);
+  font-weight: 600;
 }
 
 .submit-btn {
