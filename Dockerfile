@@ -10,9 +10,10 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
-# libgomp1 is required by faster-whisper's CTranslate2 backend on Debian slim images.
+# libgomp1 is required by faster-whisper's CTranslate2 backend, and libglib2.0-0
+# by opencv-python-headless (video frame sampling) - both on Debian slim images.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libgomp1 \
+    && apt-get install -y --no-install-recommends libgomp1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

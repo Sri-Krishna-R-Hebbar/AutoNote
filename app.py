@@ -29,13 +29,15 @@ CORS(app, resources={r"/api/*": {"origins": os.environ.get("FRONTEND_ORIGIN", "*
 app.config["UPLOAD_FOLDER"] = "uploads"
 app.config["OUTPUT_FOLDER"] = "processed_notes"
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500MB max upload
-ALLOWED_EXTENSIONS = {"mp4", "mov", "mkv", "avi", "webm", "m4v", "wmv", "flv"}
+ALLOWED_VIDEO_EXTENSIONS = {"mp4", "mov", "mkv", "avi", "webm", "m4v", "wmv", "flv"}
+ALLOWED_AUDIO_EXTENSIONS = {"mp3", "wav", "m4a", "aac", "ogg", "flac", "wma", "opus"}
 
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["OUTPUT_FOLDER"], exist_ok=True)
 
 # job_id -> {status, stage, progress, error, pdf_path, title, created,
-#            video_kind ("upload"|"none"), video_path,
+#            video_kind ("video"|"audio"|"none"), video_path, audio_path,
+#            sources ({audio: bool, visual: bool}), visual_notes,
 #            markdown, sections, concept_slides}
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
@@ -43,8 +45,8 @@ JOBS_LOCK = threading.Lock()
 JOB_MAX_AGE_SECONDS = 2 * 60 * 60  # purge finished jobs' files after 2 hours
 
 
-def _allowed_file(filename: str) -> bool:
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+def _allowed_file(filename: str, extensions: set[str]) -> bool:
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in extensions
 
 
 def _set_job(job_id: str, **fields):
@@ -70,7 +72,7 @@ def _purge_old_jobs():
         job = JOBS.pop(jid, None)
         if not job:
             continue
-        for path_key in ("pdf_path", "video_path"):
+        for path_key in ("pdf_path", "video_path", "audio_path"):
             path = job.get(path_key)
             if path and os.path.exists(path):
                 try:
@@ -79,34 +81,66 @@ def _purge_old_jobs():
                     pass
 
 
-def _run_pipeline(job_id: str, video_path: str, display_name: str):
+def _run_pipeline(job_id: str, video_path: str | None, audio_path: str | None, display_name: str):
     work_dir = os.path.join(app.config["UPLOAD_FOLDER"], job_id)
     os.makedirs(work_dir, exist_ok=True)
     try:
         title = display_name
 
-        _progress(job_id, "Extracting audio from video", 12)
-        audio_path = pipeline.extract_audio(video_path, work_dir)
+        # Path 1: audio -> transcript. Prefer a separately-uploaded audio
+        # file (it's guaranteed to actually have sound); fall back to
+        # extracting the audio track from the video file otherwise. Either
+        # source might turn out to have no audio at all - that's not fatal
+        # on its own, path 2 (below) can still carry the notes.
+        transcript = None
+        segments: list[dict] = []
+        duration = 0.0
+        audio_source = audio_path or video_path
+        if audio_source:
+            _progress(job_id, "Extracting audio", 10)
+            try:
+                extracted_audio = pipeline.extract_audio(audio_source, work_dir)
+                _progress(job_id, "Transcribing audio locally... 0%", 18)
+                transcript, segments, duration = pipeline.transcribe_audio(
+                    extracted_audio,
+                    progress=lambda msg: _progress(job_id, msg, 40),
+                )
+                if not transcript.strip():
+                    transcript = None
+            except pipeline.NoAudioTrackError as exc:
+                logger.info("[%s] %s", job_id, exc)
+                transcript = None
 
-        _progress(job_id, "Transcribing audio locally... 0%", 20)
-        transcript, segments, duration = pipeline.transcribe_audio(
-            audio_path,
-            progress=lambda msg: _progress(job_id, msg, 45),
-        )
+        # Path 2: video frames -> on-screen content (slides, whiteboard,
+        # handwriting, code, diagrams - via a Qwen vision model on
+        # OpenRouter). Only runs if a video file was actually uploaded.
+        visual_notes: list[dict] = []
+        if video_path:
+            _progress(job_id, "Analyzing video frames for on-screen content", 45)
+            visual_notes = pipeline.analyze_video_frames(
+                video_path,
+                progress=lambda msg: _progress(job_id, msg, 55),
+            )
+            if not duration:
+                duration = pipeline.get_video_duration(video_path)
 
-        if not transcript.strip():
+        if not transcript and not visual_notes:
             raise pipeline.PipelineError(
-                "No speech could be detected in this video's audio track."
+                "No speech could be transcribed and no readable on-screen content was found."
             )
 
         _progress(job_id, "Generating detailed notes with AI", 65)
         notes_markdown = pipeline.generate_notes(
-            transcript, progress=lambda msg: _progress(job_id, msg, 78)
+            transcript, visual_notes, progress=lambda msg: _progress(job_id, msg, 78)
         )
 
-        _progress(job_id, "Mapping notes to video timeline", 88)
+        _progress(job_id, "Mapping notes to the timeline", 88)
+        # Both audio segments and on-screen captures are {"start", "text"}
+        # timed entries, so they can be merged into one timeline for
+        # matching notes headings to a timestamp.
+        timeline = sorted(segments + visual_notes, key=lambda s: s["start"])
         sections, concept_slides = notes_analysis.build_sections_and_slides(
-            notes_markdown, segments
+            notes_markdown, timeline
         )
 
         _progress(job_id, "Designing your PDF", 92)
@@ -115,6 +149,13 @@ def _run_pipeline(job_id: str, video_path: str, display_name: str):
         pdf_path = os.path.join(app.config["OUTPUT_FOLDER"], f"{job_id}_notes.pdf")
         build_notes_pdf(notes_markdown, pdf_path, title=pdf_title, source_label=source_label)
 
+        if video_path:
+            video_kind = "video"
+        elif audio_path:
+            video_kind = "audio"
+        else:
+            video_kind = "none"
+
         _set_job(
             job_id,
             status="completed",
@@ -122,11 +163,13 @@ def _run_pipeline(job_id: str, video_path: str, display_name: str):
             progress=100,
             pdf_path=pdf_path,
             title=pdf_title,
-            video_kind="upload",
+            video_kind=video_kind,
             duration=duration,
             markdown=notes_markdown,
             sections=sections,
             concept_slides=concept_slides,
+            visual_notes=visual_notes,
+            sources={"audio": bool(transcript), "visual": bool(visual_notes)},
         )
     except pipeline.PipelineError as exc:
         logger.warning("[%s] pipeline error: %s", job_id, exc)
@@ -136,7 +179,7 @@ def _run_pipeline(job_id: str, video_path: str, display_name: str):
         _set_job(job_id, status="error", error="Something went wrong while processing your video.")
     finally:
         pipeline.cleanup_dir(work_dir)
-        # The uploaded video itself (video_path) is kept around so it can be
+        # The uploaded video/audio file itself is kept around so it can be
         # played back in the browser - it's cleaned up later by _purge_old_jobs.
 
 
@@ -157,30 +200,55 @@ def process():
     _purge_old_jobs()
 
     video_file = request.files.get("video")
-    if not video_file or video_file.filename == "":
-        return jsonify({"error": "Please upload a video file."}), 400
+    audio_file = request.files.get("audio")
+    has_video = video_file and video_file.filename != ""
+    has_audio = audio_file and audio_file.filename != ""
+
+    if not has_video and not has_audio:
+        return jsonify({"error": "Please upload a video file, an audio file, or both."}), 400
 
     try:
         pipeline.notes_provider()
     except pipeline.PipelineError as exc:
         return jsonify({"error": str(exc)}), 500
 
-    if not _allowed_file(video_file.filename):
+    if has_video and not _allowed_file(video_file.filename, ALLOWED_VIDEO_EXTENSIONS):
         return (
             jsonify(
                 {
-                    "error": "Unsupported file type. Allowed: "
-                    + ", ".join(sorted(ALLOWED_EXTENSIONS))
+                    "error": "Unsupported video file type. Allowed: "
+                    + ", ".join(sorted(ALLOWED_VIDEO_EXTENSIONS))
+                }
+            ),
+            400,
+        )
+    if has_audio and not _allowed_file(audio_file.filename, ALLOWED_AUDIO_EXTENSIONS):
+        return (
+            jsonify(
+                {
+                    "error": "Unsupported audio file type. Allowed: "
+                    + ", ".join(sorted(ALLOWED_AUDIO_EXTENSIONS))
                 }
             ),
             400,
         )
 
     job_id = uuid.uuid4().hex
-    filename = secure_filename(video_file.filename)
-    display_name = filename
-    video_path = os.path.join(app.config["UPLOAD_FOLDER"], f"{job_id}_{filename}")
-    video_file.save(video_path)
+    video_path = None
+    audio_path = None
+    display_name = "Video"
+
+    if has_video:
+        filename = secure_filename(video_file.filename)
+        display_name = filename
+        video_path = os.path.join(app.config["UPLOAD_FOLDER"], f"{job_id}_video_{filename}")
+        video_file.save(video_path)
+    if has_audio:
+        filename = secure_filename(audio_file.filename)
+        if not has_video:
+            display_name = filename
+        audio_path = os.path.join(app.config["UPLOAD_FOLDER"], f"{job_id}_audio_{filename}")
+        audio_file.save(audio_path)
 
     with JOBS_LOCK:
         JOBS[job_id] = {
@@ -190,6 +258,7 @@ def process():
             "error": None,
             "pdf_path": None,
             "video_path": video_path,
+            "audio_path": audio_path,
             "video_kind": None,
             "title": display_name,
             "created": time.time(),
@@ -197,7 +266,7 @@ def process():
 
     thread = threading.Thread(
         target=_run_pipeline,
-        args=(job_id, video_path, display_name),
+        args=(job_id, video_path, audio_path, display_name),
         daemon=True,
     )
     thread.start()
@@ -233,9 +302,10 @@ def notes(job_id):
     if not job or job.get("status") != "completed":
         return jsonify({"error": "Notes not ready"}), 404
 
-    video = {"kind": job.get("video_kind") or "none"}
-    if job.get("video_kind") == "upload":
-        video["src"] = f"/api/video/{job_id}"
+    video_kind = job.get("video_kind") or "none"
+    video = {"kind": video_kind}
+    if video_kind in ("video", "audio"):
+        video["src"] = f"/api/media/{job_id}"
 
     return jsonify(
         {
@@ -245,21 +315,23 @@ def notes(job_id):
             "concept_slides": job.get("concept_slides", []),
             "duration": job.get("duration"),
             "video": video,
+            "sources": job.get("sources", {"audio": False, "visual": False}),
+            "visual_notes": job.get("visual_notes", []),
             "download_url": f"/api/download/{job_id}",
         }
     )
 
 
-@app.route("/api/video/<job_id>")
-def video(job_id):
+@app.route("/api/media/<job_id>")
+def media(job_id):
     with JOBS_LOCK:
         job = JOBS.get(job_id)
-    if not job or job.get("video_kind") != "upload":
-        return jsonify({"error": "Video not available"}), 404
-    video_path = job.get("video_path")
-    if not video_path or not os.path.exists(video_path):
-        return jsonify({"error": "Video not available"}), 404
-    return send_file(video_path, conditional=True)
+    if not job or job.get("video_kind") not in ("video", "audio"):
+        return jsonify({"error": "Media not available"}), 404
+    media_path = job.get("video_path") or job.get("audio_path")
+    if not media_path or not os.path.exists(media_path):
+        return jsonify({"error": "Media not available"}), 404
+    return send_file(media_path, conditional=True)
 
 
 @app.route("/api/download/<job_id>")

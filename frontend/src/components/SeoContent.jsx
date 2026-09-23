@@ -4,12 +4,12 @@ const STEPS = [
     body: 'Drop in an MP4, MOV, MKV, AVI or WEBM file - no account needed. Got a YouTube link instead? Download it with a tool like YTUltra first (pick a version with audio), then upload the file here.',
   },
   {
-    title: 'AutoNote transcribes it',
-    body: 'A local, open-source speech model turns the audio into a full transcript in the background.',
+    title: 'AutoNote reads both the audio and the screen',
+    body: 'A local, open-source speech model transcribes what was said, while a vision AI scans video frames for anything written, typed, or drawn on screen - slides, whiteboards, code, handwriting - including things never spoken aloud.',
   },
   {
     title: 'AI writes detailed notes',
-    body: 'The transcript is turned into structured, detailed notes - headings, bullet points, definitions and key takeaways.',
+    body: 'Both sources are merged into structured, detailed notes - headings, bullet points, definitions and key takeaways.',
   },
   {
     title: 'Study with synced video, PDF & slides',
@@ -33,6 +33,14 @@ const FAQS = [
   {
     q: 'What do I get besides the PDF?',
     a: 'A Studio view with the video playing alongside notes that auto-highlight the current section, plus a swipeable Concept Slides deck summarizing key points - in addition to the downloadable PDF.',
+  },
+  {
+    q: 'Does it pick up things written on screen but never said out loud?',
+    a: 'Yes. Alongside transcribing speech, AutoNote samples video frames and uses a vision AI to read slides, whiteboard writing, handwritten notes, code, and diagrams, then merges that with the transcript - so notes capture content a presenter wrote down but didn’t narrate.',
+  },
+  {
+    q: 'Can I upload video and audio separately?',
+    a: 'Yes. If you downloaded a video-only file and a separate audio-only file (common with some YouTube downloaders), upload both - AutoNote will transcribe the audio and analyze the video’s on-screen content together. Only have one of them? That works too.',
   },
 ];
 

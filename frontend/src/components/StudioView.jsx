@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import VideoPlayer from './VideoPlayer';
 import NotesPanel from './NotesPanel';
 import ConceptSlides from './ConceptSlides';
+import OnScreenContent from './OnScreenContent';
 
 function activeSectionFor(sections, currentTime) {
   let active = null;
@@ -17,12 +18,22 @@ function activeSectionFor(sections, currentTime) {
 }
 
 export default function StudioView({ notes, onReset }) {
-  const { title, markdown, sections, concept_slides: slides, video, download_url: downloadUrl } = notes;
+  const {
+    title,
+    markdown,
+    sections,
+    concept_slides: slides,
+    video,
+    download_url: downloadUrl,
+    sources,
+    visual_notes: onScreenNotes,
+  } = notes;
   const [tab, setTab] = useState('notes');
   const [currentTime, setCurrentTime] = useState(0);
   const playerRef = useRef(null);
 
   const activeSectionId = useMemo(() => activeSectionFor(sections, currentTime), [sections, currentTime]);
+  const hasOnScreenTab = (onScreenNotes?.length ?? 0) > 0;
 
   function handleSeek(seconds) {
     playerRef.current?.seek(seconds);
@@ -42,6 +53,18 @@ export default function StudioView({ notes, onReset }) {
         </div>
       </div>
 
+      {sources && (
+        <div className="sources-strip">
+          <span className={`source-badge ${sources.audio ? 'on' : 'off'}`}>
+            🎙️ Audio transcript {sources.audio ? '✓' : '— not used'}
+          </span>
+          <span className={`source-badge ${sources.visual ? 'on' : 'off'}`}>
+            🖼️ On-screen content (Qwen vision)
+            {sources.visual ? ` ✓ ${onScreenNotes.length} frame(s)` : ' — not used'}
+          </span>
+        </div>
+      )}
+
       <div className="studio-grid">
         <div className="studio-video-col">
           <VideoPlayer ref={playerRef} video={video} onTimeUpdate={setCurrentTime} />
@@ -59,13 +82,20 @@ export default function StudioView({ notes, onReset }) {
             >
               Concept Slides
             </button>
+            {hasOnScreenTab && (
+              <button
+                type="button"
+                className={`tab-btn ${tab === 'onscreen' ? 'active' : ''}`}
+                onClick={() => setTab('onscreen')}
+              >
+                On-Screen
+              </button>
+            )}
           </div>
 
-          {tab === 'notes' ? (
-            <NotesPanel markdown={markdown} activeSectionId={activeSectionId} />
-          ) : (
-            <ConceptSlides slides={slides} onSeek={handleSeek} />
-          )}
+          {tab === 'notes' && <NotesPanel markdown={markdown} activeSectionId={activeSectionId} />}
+          {tab === 'slides' && <ConceptSlides slides={slides} onSeek={handleSeek} />}
+          {tab === 'onscreen' && <OnScreenContent notes={onScreenNotes} onSeek={handleSeek} />}
         </div>
       </div>
     </div>
