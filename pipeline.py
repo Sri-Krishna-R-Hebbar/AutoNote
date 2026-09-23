@@ -159,7 +159,11 @@ def _cookies_file_path() -> str | None:
 # full URL override (e.g. when running the provider locally for testing).
 _BGUTIL_POT_HOST = os.getenv("BGUTIL_POT_HOST", "").strip()
 _BGUTIL_POT_BASE_URL = os.getenv("BGUTIL_POT_BASE_URL", "").strip() or (
-    f"https://{_BGUTIL_POT_HOST}" if _BGUTIL_POT_HOST else ""
+    # Render's fromService/property:host gives the bare internal hostname for
+    # its private network (e.g. "autonote-pot"), which is plain HTTP only -
+    # not HTTPS - and isn't paired with a port. The pot-provider image always
+    # listens on 4416 (it doesn't read $PORT), so that has to be added here.
+    f"http://{_BGUTIL_POT_HOST}:4416" if _BGUTIL_POT_HOST else ""
 )
 
 

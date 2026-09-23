@@ -22,5 +22,11 @@ services:
     name: autonote-pot
     runtime: image
     plan: free
+    # The image always listens on 4416 and never reads $PORT, so Render has
+    # to be told explicitly - otherwise it assumes the default of 10000 for
+    # both health checks and private-network routing.
+    envVars:
+      - key: PORT
+        value: "4416"
     image:
       url: docker.io/brainicism/bgutil-ytdlp-pot-provider:latest
