@@ -32,10 +32,14 @@ import shutil
 import subprocess
 import logging
 
-import cv2
-import numpy as np
 import requests
 import imageio_ffmpeg
+
+# cv2/numpy are imported lazily (inside the functions that use them, below) -
+# opencv's native shared libraries add a real amount of baseline RSS just by
+# being imported, and on a free-tier host with ~512MB total RAM, that's
+# memory better spent on the Whisper model during path 1 (audio) than paid
+# up front for every request even when path 2 (video frames) never runs.
 
 logger = logging.getLogger("autonote.pipeline")
 
@@ -178,6 +182,8 @@ def extract_audio(video_path: str, out_dir: str) -> str:
 def get_video_duration(video_path: str) -> float:
     """Best-effort video duration in seconds, via OpenCV - used as a fallback
     when there's no audio track to derive duration from instead."""
+    import cv2
+
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         return 0.0
@@ -207,6 +213,8 @@ def _encode_frame_jpeg_bytes(frame) -> bytes:
     can turn up dozens of candidate frames before they're thinned down to
     FRAME_MAX_CALLS - holding all of them as full-resolution frames at once
     was actually enough to exceed a free-tier host's RAM on longer videos."""
+    import cv2
+
     h, w = frame.shape[:2]
     if w > FRAME_MAX_WIDTH:
         frame = cv2.resize(frame, (FRAME_MAX_WIDTH, int(h * FRAME_MAX_WIDTH / w)))
@@ -274,6 +282,9 @@ def analyze_video_frames(video_path: str, progress=None) -> list[dict]:
     if not OPENROUTER_API_KEY:
         logger.info("OPENROUTER_API_KEY not set - skipping on-screen video content analysis.")
         return []
+
+    import cv2
+    import numpy as np
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
