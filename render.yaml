@@ -6,3 +6,21 @@ services:
     envVars:
       - key: GROQ_API_KEY
         sync: false
+      - key: YTDLP_COOKIES
+        sync: false
+      - key: BGUTIL_POT_HOST
+        fromService:
+          type: web
+          name: autonote-pot
+          property: host
+
+  # Generates YouTube "proof of origin" tokens so yt-dlp can get past
+  # "Sign in to confirm you're not a bot" on YouTube downloads. Runs as its
+  # own free service (prebuilt image, no Dockerfile of ours involved) so it
+  # doesn't compete for RAM/CPU with the main app's Whisper transcription.
+  - type: web
+    name: autonote-pot
+    runtime: image
+    plan: free
+    image:
+      url: docker.io/brainicism/bgutil-ytdlp-pot-provider:latest

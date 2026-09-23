@@ -7,4 +7,5 @@ Werkzeug==3.0.4
 reportlab==4.2.5
 imageio-ffmpeg==0.5.1
 yt-dlp>=2026.8.19
+bgutil-ytdlp-pot-provider
 faster-whisper==1.2.1

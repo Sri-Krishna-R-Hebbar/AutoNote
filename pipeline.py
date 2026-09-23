@@ -150,6 +150,19 @@ def _cookies_file_path() -> str | None:
     return None
 
 
+# Optional: a bgutil-ytdlp-pot-provider HTTP server, used to generate the
+# "proof of origin" token YouTube increasingly requires alongside cookies to
+# get past "Sign in to confirm you're not a bot". Deployed as a separate
+# Render service (see render.yaml) so it doesn't share RAM/CPU with this
+# app's Whisper transcription; BGUTIL_POT_HOST is auto-wired to that
+# service's hostname by Render. BGUTIL_POT_BASE_URL can be set instead for a
+# full URL override (e.g. when running the provider locally for testing).
+_BGUTIL_POT_HOST = os.getenv("BGUTIL_POT_HOST", "").strip()
+_BGUTIL_POT_BASE_URL = os.getenv("BGUTIL_POT_BASE_URL", "").strip() or (
+    f"https://{_BGUTIL_POT_HOST}" if _BGUTIL_POT_HOST else ""
+)
+
+
 def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
     """Download only the audio track of a YouTube (or other yt-dlp supported) URL.
 
@@ -186,44 +199,39 @@ def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
         }
         if cookies_path:
             opts["cookiefile"] = cookies_path
+        if _BGUTIL_POT_BASE_URL:
+            opts["extractor_args"] = {
+                "youtubepot-bgutilhttp": {"base_url": [_BGUTIL_POT_BASE_URL]}
+            }
         return opts
 
     # Cloud/datacenter IPs (Render, AWS, etc.) frequently get blocked by
     # YouTube's default "web" extraction path, or hit a "confirm you're not a
-    # bot" wall. Falling back through other internal YouTube clients works
-    # around that in many cases, since they use different request signatures;
-    # cookies (if configured above) help every attempt below get further.
+    # bot" wall - cookies (if configured) and a PO token provider (if
+    # configured, see BGUTIL_POT_BASE_URL above) get past that.
     #
-    # The mobile clients (android/ios) have also started returning
-    # SABR-restricted formats that yt-dlp can't download directly, causing
-    # "Requested format is not available" even though extraction itself
-    # succeeded - so when we have cookies, try the full "web" client (which
-    # doesn't have that restriction) first, and only fall back to the mobile
-    # clients last.
-    if cookies_path:
-        player_client_attempts = [
-            ["web"],
-            ["tv_embedded"],
-            ["tv"],
-            ["mweb"],
-            ["android", "web"],
-            ["ios"],
-            None,
-        ]
-    else:
-        player_client_attempts = [
-            ["android", "web"],
-            ["ios"],
-            ["tv_embedded"],
-            ["tv"],
-            ["mweb"],
-            None,  # yt-dlp's default behaviour, as a last resort
-        ]
+    # Separately, YouTube has been rolling out "SABR-only" streaming that
+    # strips direct download URLs from most formats. As of testing this
+    # against the live site, the "web"/"ios"/"mweb" clients currently return
+    # NO downloadable formats at all under SABR, while "android" still
+    # exposes one legacy progressive (video+audio combined) format that
+    # survives it - so android goes first regardless of cookies/POT, with the
+    # rest kept only as a fallback in case that changes again later.
+    player_client_attempts = [
+        ["android"],
+        ["android", "web"],
+        ["ios"],
+        ["mweb"],
+        ["tv"],
+        ["web"],
+        None,  # yt-dlp's default behaviour, as a last resort
+    ]
 
     logger.info(
-        "YouTube download starting for %s (cookies=%s, %d client attempt(s) queued)",
+        "YouTube download starting for %s (cookies=%s, pot_provider=%s, %d client attempt(s) queued)",
         url,
         "yes" if cookies_path else "no",
+        "yes" if _BGUTIL_POT_BASE_URL else "no",
         len(player_client_attempts),
     )
 
