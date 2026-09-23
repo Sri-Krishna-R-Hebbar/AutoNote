@@ -65,6 +65,8 @@ GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 # "medium" if you have more RAM/CPU available.
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "base")
 WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+# Capped low by default - see the comment in _get_whisper_model() for why.
+WHISPER_CPU_THREADS = int(os.getenv("WHISPER_CPU_THREADS", "2"))
 
 # Transcript characters above which we switch to a map-reduce note pass.
 NOTES_SINGLE_PASS_CHAR_LIMIT = int(os.getenv("NOTES_SINGLE_PASS_CHAR_LIMIT", "60000"))
@@ -354,12 +356,23 @@ def _get_whisper_model():
         from faster_whisper import WhisperModel
 
         logger.info(
-            "Loading local Whisper model '%s' (compute_type=%s)...",
+            "Loading local Whisper model '%s' (compute_type=%s, cpu_threads=%d)...",
             WHISPER_MODEL_SIZE,
             WHISPER_COMPUTE_TYPE,
+            WHISPER_CPU_THREADS,
         )
         _WHISPER_MODEL = WhisperModel(
-            WHISPER_MODEL_SIZE, device="cpu", compute_type=WHISPER_COMPUTE_TYPE
+            WHISPER_MODEL_SIZE,
+            device="cpu",
+            compute_type=WHISPER_COMPUTE_TYPE,
+            # CTranslate2 defaults to using every CPU the container reports,
+            # and each thread allocates its own compute buffers - on a
+            # memory-capped free-tier host that's pure overhead for no speed
+            # benefit (there's rarely more than 1-2 real vCPUs available
+            # anyway), and was enough to push total RSS over the limit on
+            # longer audio.
+            cpu_threads=WHISPER_CPU_THREADS,
+            num_workers=1,
         )
     return _WHISPER_MODEL
 

@@ -157,6 +157,12 @@ transcription will be slower than the previous Groq-API approach, especially for
 - Job status is kept in memory, not a database - if the server process restarts while a job is
   still processing (e.g. an out-of-memory crash), that job is lost and polling it returns "job was
   lost" - just re-upload.
+- Render's free tier caps total RAM at 512MB, and local Whisper transcription is the most
+  memory-hungry step - on longer videos the "base" model can push close to (or past) that limit.
+  If jobs keep getting silently killed during the "Transcribing audio" stage, set
+  `WHISPER_MODEL_SIZE=tiny` in your Render environment variables (no rebuild needed, just a
+  restart) as the fastest fix; `WHISPER_CPU_THREADS` is also capped at 2 by default to avoid
+  CTranslate2 over-allocating buffers on a shared vCPU.
 - File upload only — YouTube (and other) URL downloading was removed. YouTube blanket-blocks
   video downloads from cloud/datacenter IP ranges (Render, AWS, GCP, etc.) at the network level,
   independent of cookies or PO tokens, so it never worked reliably once deployed. The UI now
