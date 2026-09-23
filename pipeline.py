@@ -163,6 +163,17 @@ _BGUTIL_POT_BASE_URL = os.getenv("BGUTIL_POT_BASE_URL", "").strip() or (
 )
 
 
+class _YtdlpLogger:
+    """Routes yt-dlp's own internal messages into our logger, so things like
+    whether the PO token provider was actually reached show up in server
+    logs even though we keep yt-dlp's own stdout ("quiet") suppressed."""
+
+    def _emit(self, msg):
+        logger.info("yt-dlp: %s", msg)
+
+    debug = info = warning = error = _emit
+
+
 def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
     """Download only the audio track of a YouTube (or other yt-dlp supported) URL.
 
@@ -188,6 +199,8 @@ def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
             "noplaylist": True,
             "quiet": True,
             "no_warnings": True,
+            "verbose": True,
+            "logger": _YtdlpLogger(),
             "ffmpeg_location": _ffmpeg_exe(),
             "postprocessors": [
                 {
@@ -241,7 +254,10 @@ def download_youtube_audio(url: str, out_dir: str) -> tuple[str, str]:
         label = "+".join(clients) if clients else "default"
         opts = base_opts()
         if clients:
-            opts["extractor_args"] = {"youtube": {"player_client": clients}}
+            # merge, don't overwrite - base_opts() may already have set
+            # youtubepot-bgutilhttp's base_url here, and clobbering the whole
+            # dict would silently drop the PO token provider config.
+            opts.setdefault("extractor_args", {})["youtube"] = {"player_client": clients}
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
                 info = ydl.extract_info(url, download=True)
