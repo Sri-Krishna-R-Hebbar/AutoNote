@@ -9,8 +9,9 @@ content-extraction paths and merges what they find:
                     a plain transcript of everything that was SAID.
   Path 2 - video:  sample frames from the video (OpenCV) -> for frames that
                     changed meaningfully since the last one, ask a vision
-                    language model (Qwen2.5-VL, via OpenRouter) to transcribe
-                    any text/handwriting/diagrams visibly WRITTEN on screen
+                    language model (Qwen, via OpenRouter, with other free
+                    vision models as fallback) to transcribe any
+                    text/handwriting/diagrams visibly WRITTEN on screen
                     (slides, whiteboards, code editors, annotations) - things
                     that may never be spoken aloud.
 
@@ -31,6 +32,16 @@ import os
 import shutil
 import subprocess
 import logging
+
+# Must be set before any native library that bundles its own OpenMP runtime
+# gets imported (faster-whisper's CTranslate2 backend and OpenCV both do).
+# Loading two different bundled OpenMP runtimes in one process is a known
+# cause of hard, traceless process crashes (not a Python exception - the
+# whole process just dies), especially on Windows. These env vars are the
+# standard workaround: tolerate the duplicate runtime instead of aborting,
+# and keep each library's internal thread pool small regardless.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import requests
 import imageio_ffmpeg
@@ -69,22 +80,39 @@ WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 WHISPER_CPU_THREADS = int(os.getenv("WHISPER_CPU_THREADS", "2"))
 
 # Transcript characters above which we switch to a map-reduce note pass.
-NOTES_SINGLE_PASS_CHAR_LIMIT = int(os.getenv("NOTES_SINGLE_PASS_CHAR_LIMIT", "60000"))
+# Kept deliberately small: Groq's free tier caps at ~7000-8000 TOTAL tokens
+# per minute (input + the reserved max_tokens budget) per model, org-wide -
+# not per request "burst" capacity that recovers, a genuinely oversized
+# single request is rejected outright (HTTP 413) no matter how long you wait
+# before retrying. ~9000 chars keeps prompt+completion comfortably under that
+# even accounting for markdown/technical text being denser than ~4 chars/token.
+NOTES_SINGLE_PASS_CHAR_LIMIT = int(os.getenv("NOTES_SINGLE_PASS_CHAR_LIMIT", "9000"))
+# Reserving the full 8192 alone was close to (or over) the whole per-minute
+# budget on some models before any input was even counted.
+GROQ_MAX_TOKENS = int(os.getenv("GROQ_MAX_TOKENS", "3000"))
 
-# OpenRouter (https://openrouter.ai) gives access to Qwen's vision-language
-# models for reading on-screen text/handwriting out of video frames. This is
+# OpenRouter (https://openrouter.ai) gives access to vision-language models
+# for reading on-screen text/handwriting out of video frames (Qwen first, per
+# request, with other free vision-capable models as fallback). This is
 # entirely optional - if OPENROUTER_API_KEY isn't set, path 2 (visual
-# content) is simply skipped and notes are generated from audio alone, same
-# as before. Free-tier ":free" model slugs on OpenRouter rotate over time, so
-# this is a fallback chain (first one that works wins) and can be overridden
-# with OPENROUTER_VISION_MODEL if these stop being available - check
-# https://openrouter.ai/models?modality=text%2Bimage-%3Etext for current ones.
+# content) is simply skipped and notes are generated from audio alone.
+#
+# Free-tier ":free" model slugs on OpenRouter rotate/get pulled often (the
+# previous Qwen2.5-VL ones in this chain stopped being free), so this is a
+# fallback chain (first one that actually responds wins), and can be
+# overridden with OPENROUTER_VISION_MODEL. To check what's currently live and
+# free with image support, query OpenRouter's own model list rather than
+# trusting any hardcoded list (including this one) to stay accurate:
+#   curl -s https://openrouter.ai/api/v1/models | \
+#     python -c "import json,sys; [print(m['id']) for m in json.load(sys.stdin)['data'] \
+#     if ':free' in m['id'] and 'image' in m.get('architecture', {}).get('input_modalities', [])]"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OPENROUTER_CHAT_URL = "https://openrouter.ai/api/v1/chat/completions"
 _DEFAULT_OPENROUTER_VISION_CHAIN = [
-    "qwen/qwen2.5-vl-72b-instruct:free",
-    "qwen/qwen2.5-vl-32b-instruct:free",
-    "meta-llama/llama-3.2-11b-vision-instruct:free",
+    "qwen/qwen3.8-27b:free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
 ]
 _openrouter_vision_override = os.getenv("OPENROUTER_VISION_MODEL", "").strip()
 OPENROUTER_VISION_MODELS = (
@@ -488,7 +516,7 @@ def _call_groq_chat(prompt: str, model: str) -> str:
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.4,
-        "max_tokens": 8192,
+        "max_tokens": GROQ_MAX_TOKENS,
     }
     resp = requests.post(GROQ_CHAT_URL, headers=headers, json=payload, timeout=180)
     if resp.status_code != 200:
@@ -577,7 +605,8 @@ def generate_notes(
             progress("Generating detailed notes")
         return _generate(NOTES_INSTRUCTIONS.format(transcript=source_text))
 
-    # Long source material: map-reduce so we stay within model context/output limits.
+    # Long source material: map-reduce so we stay within Groq's per-request
+    # token limits.
     parts = _chunk_transcript(source_text, NOTES_SINGLE_PASS_CHAR_LIMIT)
     drafts = []
     for idx, part in enumerate(parts, start=1):
@@ -591,8 +620,44 @@ def generate_notes(
 
     if progress:
         progress("Merging notes into final document")
-    combined = "\n\n---\n\n".join(drafts)
-    return _generate(REDUCE_INSTRUCTIONS.format(drafts=combined))
+    return _reduce_drafts(drafts, progress=progress)
+
+
+def _reduce_drafts(drafts: list[str], progress=None, round_num: int = 1) -> str:
+    """Merge map-pass drafts into one document, same size-bounded-request
+    constraint as above - simply concatenating every draft into one REDUCE
+    call breaks the same way a too-long transcript does on a long video with
+    many parts. Merges in batches that fit the char limit, then recurses on
+    the (fewer, larger) results until only one document is left."""
+    if len(drafts) == 1:
+        return drafts[0]
+
+    batches: list[list[str]] = []
+    current: list[str] = []
+    current_len = 0
+    for draft in drafts:
+        if current and current_len + len(draft) > NOTES_SINGLE_PASS_CHAR_LIMIT:
+            batches.append(current)
+            current, current_len = [], 0
+        current.append(draft)
+        current_len += len(draft)
+    if current:
+        batches.append(current)
+
+    merged = []
+    for i, batch in enumerate(batches, start=1):
+        if progress:
+            progress(f"Merging notes (round {round_num}, group {i}/{len(batches)})")
+        combined = "\n\n---\n\n".join(batch)
+        merged.append(_generate(REDUCE_INSTRUCTIONS.format(drafts=combined)))
+
+    if len(merged) == len(drafts):
+        # No batch had more than one draft (every draft alone is already at
+        # or near the limit) - further rounds wouldn't shrink anything, so
+        # stop here rather than recursing forever.
+        return "\n\n---\n\n".join(merged)
+
+    return _reduce_drafts(merged, progress=progress, round_num=round_num + 1)
 
 
 def cleanup_dir(path: str) -> None:

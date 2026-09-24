@@ -381,4 +381,8 @@ def serve_frontend(path):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     debug = os.environ.get("FLASK_DEBUG", "true").lower() == "true"
-    app.run(debug=debug, host="0.0.0.0", port=port)
+    # use_reloader=False always - processing jobs run in a background thread
+    # inside this same process; if the reloader restarts the process mid-job
+    # (e.g. it notices some file change), that thread and the in-memory JOBS
+    # dict both vanish, which looks exactly like "This job was lost".
+    app.run(debug=debug, use_reloader=False, host="0.0.0.0", port=port)

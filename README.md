@@ -125,9 +125,15 @@ See `.env.example` for the full list. The main ones:
 - `GROQ_LLM_MODEL` — override the notes model instead of using the built-in fallback chain.
 - `OPENROUTER_API_KEY` — optional, enables path 2 (on-screen content). Without it, that path is
   silently skipped and notes come from audio alone.
-- `OPENROUTER_VISION_MODEL` — override the vision model instead of the built-in Qwen2.5-VL
-  fallback chain. OpenRouter's free-tier model slugs rotate over time, so check
-  https://openrouter.ai/models?modality=text%2Bimage-%3Etext if the defaults stop working.
+- `OPENROUTER_VISION_MODEL` — override the vision model instead of the built-in fallback chain.
+  OpenRouter's free-tier model slugs rotate/get pulled often (this has already happened once), so
+  if on-screen content silently stops finding anything, check server logs for repeated 404s from
+  OpenRouter and re-query what's currently live and free with image support:
+  ```bash
+  curl -s https://openrouter.ai/api/v1/models | \
+    python -c "import json,sys; [print(m['id']) for m in json.load(sys.stdin)['data'] \
+    if ':free' in m['id'] and 'image' in m.get('architecture', {}).get('input_modalities', [])]"
+  ```
 - `FRAME_SAMPLE_INTERVAL_SECONDS` / `FRAME_DIFF_THRESHOLD` / `FRAME_MAX_CALLS` — tune how
   aggressively video frames are sampled and how many are ever sent to the vision model per video.
 
