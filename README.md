@@ -11,9 +11,10 @@ presenter often *writes* things down (on a slide, whiteboard, or in code) that t
   **locally** with `faster-whisper` (open-source, from Hugging Face) — no transcription API/key
   required.
 - **Path 2 — video frames → on-screen content.** Frames are sampled from the video (OpenCV), and
-  for frames that changed meaningfully since the last one, a **Qwen2.5-VL vision-language model**
-  (via [OpenRouter](https://openrouter.ai), free tier) reads any text/handwriting/diagrams
-  actually visible on screen — slides, whiteboards, code editors, annotations.
+  for frames that changed meaningfully since the last one, a **Qwen vision-language model**
+  (`qwen/qwen3.8-27b:free`, via [OpenRouter](https://openrouter.ai), free tier — falls back to
+  other free vision models if Qwen is unavailable) reads any text/handwriting/diagrams actually
+  visible on screen — slides, whiteboards, code editors, annotations.
 
 Upload just a video, just an audio file, or both (handy if you downloaded them separately) —
 whichever path(s) have input run; if only one produces content, the notes are built from that
@@ -32,6 +33,55 @@ alone. Both paths' output then flows into:
 
 Groq is used only for the final note-writing step; transcription runs locally and frame analysis
 uses a separate vision model on OpenRouter, so no single provider is a dependency for everything.
+
+---
+
+## 🧭 Pipeline flow
+
+```mermaid
+flowchart TD
+    U["User uploads a video and/or an audio file<br/>(at least one required)"]
+
+    U --> HasAudioSrc{"Video or audio<br/>provided?"}
+    HasAudioSrc -- yes --> Extract["ffmpeg<br/>extract/convert audio track"]
+    Extract --> Whisper["<b>Path 1 - faster-whisper</b><br/>(local, open-source, WHISPER_MODEL_SIZE)"]
+    Whisper --> Transcript["Spoken transcript<br/>+ timestamped segments"]
+
+    U --> HasVideo{"Video<br/>provided?"}
+    HasVideo -- yes --> Sample["OpenCV<br/>sample frames, diff-filter,<br/>cap at FRAME_MAX_CALLS"]
+    Sample --> Qwen["<b>Path 2 - Qwen vision-language model</b><br/>(qwen/qwen3.8-27b:free via OpenRouter,<br/>falls back to other free vision models)"]
+    Qwen --> OnScreen["On-screen text/handwriting/diagrams<br/>+ timestamps"]
+
+    Transcript --> Merge["Merge both into one labeled<br/>SPOKEN + ON-SCREEN source text"]
+    OnScreen --> Merge
+
+    Merge --> Groq["<b>Groq chat model</b><br/>(openai/gpt-oss-20b, falling back to<br/>qwen/qwen3.8-27b, then openai/gpt-oss-120b)<br/>writes structured markdown notes"]
+
+    Groq --> Analysis["notes_analysis.py<br/>maps headings to the combined timeline<br/>(no extra AI calls)"]
+
+    Analysis --> PDF["ReportLab<br/>designed PDF"]
+    Analysis --> Studio["Studio view: video/audio player + synced notes<br/>+ Concept Slides + On-Screen tab"]
+```
+
+If only one of video/audio is uploaded, whichever path has no input for it is simply skipped (its
+half of the source text says so explicitly) — notes are generated from whatever's available.
+
+### Models used, by stage
+
+| Stage | Model / tool | Runs where | Key needed |
+|---|---|---|---|
+| Audio extraction | ffmpeg (bundled via `imageio-ffmpeg`) | Local | No |
+| **Path 1** — transcription | `faster-whisper` (`WHISPER_MODEL_SIZE`, default `base`) | Local (CPU) | No |
+| Video frame sampling | OpenCV (diff-based, capped at `FRAME_MAX_CALLS`) | Local | No |
+| **Path 2** — on-screen content | Qwen `qwen/qwen3.8-27b:free` → falls back to `google/gemma-4-31b-it:free` → `google/gemma-4-26b-a4b-it:free` → `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free` | [OpenRouter](https://openrouter.ai) API | `OPENROUTER_API_KEY` (optional) |
+| Notes generation | Groq `openai/gpt-oss-20b` → falls back to `qwen/qwen3.8-27b` → `openai/gpt-oss-120b` | [Groq](https://groq.com) API | `GROQ_API_KEY` (required) |
+| Heading ↔ timestamp mapping | Custom word-overlap matching (`notes_analysis.py`) | Local | No |
+| PDF rendering | ReportLab (`pdf_builder.py`) | Local | No |
+
+Every model above is configurable via env vars (`GROQ_LLM_MODEL`, `OPENROUTER_VISION_MODEL`,
+`WHISPER_MODEL_SIZE`) — see `.env.example`. OpenRouter's free-tier model slugs rotate/get pulled
+over time (already happened once), so if Path 2 silently stops finding anything, re-check what's
+currently live per the command in `.env.example`/below.
 
 ---
 
@@ -98,8 +148,8 @@ You need **Python 3.10+** and **Node.js 18+**.
 - `app.py` — Flask API: upload handling, background job processing (orchestrating both paths),
   status polling, download, media streaming, and serving the built React app.
 - `pipeline.py` — audio extraction (ffmpeg) + local transcription (faster-whisper) for path 1;
-  video frame sampling (OpenCV) + vision-model calls (Qwen2.5-VL via OpenRouter) for path 2; and
-  notes generation (Groq chat models) merging both.
+  video frame sampling (OpenCV) + vision-model calls (Qwen via OpenRouter) for path 2; and notes
+  generation (Groq chat models) merging both.
 - `notes_analysis.py` — turns generated markdown + a combined audio/on-screen timeline into the
   `sections` (heading → timestamp) and `concept_slides` used by the Studio view, with no extra
   AI calls.
@@ -173,7 +223,7 @@ transcription will be slower than the previous Groq-API approach, especially for
   video downloads from cloud/datacenter IP ranges (Render, AWS, GCP, etc.) at the network level,
   independent of cookies or PO tokens, so it never worked reliably once deployed. The UI now
   points users to download the video themselves first (e.g. via
-  [YTUltra](https://www.ytultra.com/en/youtube-video-downloader/), picking a version with audio
+  [Y2mate](https://v38.www-y2mate.com/convert/), picking a version with audio
   included) and upload the file instead.
 - Works best with lectures, talks, and other clearly-spoken content.
 - Very long videos are automatically chunked, if needed, for note generation, so there's no hard

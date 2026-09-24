@@ -1,7 +1,7 @@
 const STEPS = [
   {
     title: 'Upload a video',
-    body: 'Drop in an MP4, MOV, MKV, AVI or WEBM file - no account needed. Got a YouTube link instead? Download it with a tool like YTUltra first (pick a version with audio), then upload the file here.',
+    body: 'Drop in an MP4, MOV, MKV, AVI or WEBM file - no account needed. Got a YouTube link instead? Download it with a tool like Y2mate first (pick a version with audio), then upload the file here.',
   },
   {
     title: 'AutoNote reads both the audio and the screen',
@@ -20,7 +20,7 @@ const STEPS = [
 const FAQS = [
   {
     q: 'How do I convert a YouTube video to notes?',
-    a: 'Download the video first with a tool like YTUltra (choosing a version that includes audio), then upload the downloaded file to AutoNote and click "Generate my notes." AutoNote transcribes it and writes detailed notes you can read alongside the video, then download as a PDF.',
+    a: 'Download the video first with a tool like Y2mate (choosing a version that includes audio), then upload the downloaded file to AutoNote and click "Generate my notes." AutoNote transcribes it and writes detailed notes you can read alongside the video, then download as a PDF.',
   },
   {
     q: 'Can I turn any video into notes, not just YouTube?',

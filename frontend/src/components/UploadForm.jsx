@@ -94,11 +94,11 @@ export default function UploadForm({ onSubmit }) {
       <p className="youtube-hint">
         Have a YouTube link instead of a file? Download it first with a trusted tool like{' '}
         <a
-          href="https://www.ytultra.com/en/youtube-video-downloader/"
+          href="https://v38.www-y2mate.com/convert/"
           target="_blank"
           rel="noopener noreferrer"
         >
-          YTUltra
+          Y2mate
         </a>
         , then upload the downloaded video here (pick a version with audio included).
       </p>
